@@ -177,6 +177,35 @@ def export_samples(package, output_dir: str):
     print(f"Errors: {errors}")
 
 
+def export_sf2(package, output_file: str):
+    """Export all samples to SoundFont2 format."""
+    if not package.samples:
+        print("No samples to export")
+        return
+    
+    print(f"Exporting {len(package.samples)} samples to SoundFont2...")
+    print(f"Output: {output_file}")
+    
+    try:
+        from export.sf2_writer import export_samples_to_sf2
+        
+        success = export_samples_to_sf2(
+            package.samples,
+            output_file,
+            name=package.name
+        )
+        
+        if success:
+            file_size = os.path.getsize(output_file)
+            print(f"\n✓ Successfully exported {len(package.samples)} samples")
+            print(f"  File size: {file_size:,} bytes")
+        else:
+            print("\n✗ Export failed")
+            
+    except Exception as e:
+        print(f"\n✗ Export error: {e}")
+
+
 def analyze_file(filepath: str):
     """Analyze a file and print format information."""
     print(f"Analyzing: {filepath}")
@@ -213,6 +242,7 @@ Examples:
   python cli.py package.set --play 0
   python cli.py package.set --demo
   python cli.py package.set --export ./output
+  python cli.py package.set --sf2 output.sf2
   python cli.py file.ksf --analyze
         """
     )
@@ -222,7 +252,8 @@ Examples:
     parser.add_argument('--list', action='store_true', help='List all contents')
     parser.add_argument('--play', type=int, metavar='INDEX', help='Play sample by index')
     parser.add_argument('--demo', action='store_true', help='Play demo of first samples')
-    parser.add_argument('--export', metavar='DIR', help='Export all samples to directory')
+    parser.add_argument('--export', metavar='DIR', help='Export all samples as WAV to directory')
+    parser.add_argument('--sf2', metavar='FILE', help='Export all samples to SoundFont2 file')
     parser.add_argument('--analyze', action='store_true', help='Analyze file format')
     parser.add_argument('--debug', action='store_true', help='Enable debug output')
     
@@ -277,6 +308,9 @@ Examples:
     
     if args.export:
         export_samples(package, args.export)
+    
+    if args.sf2:
+        export_sf2(package, args.sf2)
     
     return 0
 

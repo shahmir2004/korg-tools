@@ -78,6 +78,7 @@ class MainWindow:
         file_menu.add_command(label="Open Folder...", command=self._open_folder)
         file_menu.add_separator()
         file_menu.add_command(label="Export Sample as WAV...", command=self._export_wav, state='disabled')
+        file_menu.add_command(label="Export All to SF2...", command=self._export_sf2, state='disabled')
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit, accelerator="Alt+F4")
         self.file_menu = file_menu
@@ -719,7 +720,7 @@ Compressed: {'Yes' if f.compressed else 'No'}
             title="Export as WAV",
             defaultextension=".wav",
             filetypes=[("WAV Audio", "*.wav")],
-            initialname=f"{self.selected_item.name}.wav"
+            initialfile=f"{self.selected_item.name}.wav"
         )
         
         if filepath:
@@ -729,6 +730,60 @@ Compressed: {'Yes' if f.compressed else 'No'}
             else:
                 self._set_status("Export failed")
                 messagebox.showerror("Export", "Failed to export sample")
+    
+    def _export_sf2(self):
+        """Export all samples to SoundFont2 format."""
+        if not self.current_package or not self.current_package.samples:
+            messagebox.showwarning("Export", "No samples loaded to export")
+            return
+        
+        # Get output filename
+        default_name = f"{self.current_package.name}.sf2"
+        filepath = filedialog.asksaveasfilename(
+            title="Export as SoundFont2",
+            defaultextension=".sf2",
+            filetypes=[("SoundFont2", "*.sf2"), ("All Files", "*.*")],
+            initialfile=default_name
+        )
+        
+        if not filepath:
+            return
+        
+        self._set_status("Exporting to SF2...")
+        
+        def export_thread():
+            try:
+                from export.sf2_writer import export_samples_to_sf2
+                
+                samples = self.current_package.samples
+                success = export_samples_to_sf2(
+                    samples, 
+                    filepath, 
+                    name=self.current_package.name
+                )
+                
+                if success:
+                    self.root.after(0, lambda: self._on_sf2_export_complete(filepath, len(samples)))
+                else:
+                    self.root.after(0, lambda: self._on_sf2_export_error("Export failed"))
+            except Exception as e:
+                self.root.after(0, lambda: self._on_sf2_export_error(str(e)))
+        
+        thread = threading.Thread(target=export_thread, daemon=True)
+        thread.start()
+    
+    def _on_sf2_export_complete(self, filepath: str, sample_count: int):
+        """Handle successful SF2 export."""
+        self._set_status(f"Exported {sample_count} samples to SF2")
+        messagebox.showinfo(
+            "Export Complete", 
+            f"Successfully exported {sample_count} samples to:\n{filepath}"
+        )
+    
+    def _on_sf2_export_error(self, error: str):
+        """Handle SF2 export error."""
+        self._set_status("SF2 export failed")
+        messagebox.showerror("Export Error", f"Failed to export SF2:\n{error}")
     
     def _scan_folder(self, folderpath: str):
         """Scan a folder for Korg files or load as SET package."""
@@ -799,6 +854,7 @@ File Types Found:
     def _enable_controls(self):
         """Enable controls after loading a package."""
         self.file_menu.entryconfig("Export Sample as WAV...", state='normal')
+        self.file_menu.entryconfig("Export All to SF2...", state='normal')
         self.btn_stop.config(state='normal')
     
     def _set_info_text(self, text: str):
