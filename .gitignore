@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Output files
+output/
+*.wav
+
+# Sample files (users provide their own)
+samples/
+*.SET/
+*.set/
+*.PCM
+*.pcm
+*.KMP
+*.kmp
+*.PCG
+*.pcg
+*.STY
+*.sty
+
+# Debug/analysis scripts (development only)
+src/analyze_*.py
+src/debug_*.py
+src/test_*.py
+src/play_*.py
+src/pcm_decoder.py
+
+# Tests (separate from main codebase)
+tests/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log

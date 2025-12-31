@@ -1,0 +1,17 @@
+# Korg Tools - Dependencies
+
+# Audio playback
+pygame>=2.5.0
+
+# Numerical processing for audio data
+numpy>=1.24.0
+
+# Audio file handling
+scipy>=1.11.0
+soundfile>=0.12.0
+
+# Binary structure parsing
+construct>=2.10.0
+
+# Testing (optional - install with: pip install pytest)
+# pytest>=7.0.0
