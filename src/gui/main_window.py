@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.korg_types import SetPackage, SampleInfo, Program, Multisample, EmbeddedFile, SampleType, LoopMode
 from parsers.set_parser import SetParser
-from parsers.sample_classifier_fast import classify_all_samples_fast as classify_all_samples, group_samples_fast as group_samples_by_pattern
+from parsers.sample_classifier_fast import classify_all_samples_fast as classify_all_samples, group_samples_fast as group_samples_by_pattern, get_sample_type_summary
+from parsers.program_linker import ProgramSampleLinker
 from audio.player import AudioPlayer, PlayerState
 
 
@@ -457,6 +458,14 @@ class MainWindow:
                     self.root.after(0, lambda: self.loading_indicator.update_status("Grouping samples..."))
                     # Pre-compute sample groups
                     package._sample_groups = group_samples_by_pattern(package.samples)
+                    
+                    # Link programs to samples using PCG analysis
+                    if package.programs:
+                        self.root.after(0, lambda: self.loading_indicator.update_status("Linking programs to samples..."))
+                        linker = ProgramSampleLinker()
+                        linker.load_programs(package.programs)
+                        linker.load_samples(package.samples)
+                        package._program_links = linker.link_all()
                 
                 self.root.after(0, lambda: self._on_package_loaded(package))
             except Exception as e:
@@ -592,14 +601,47 @@ class MainWindow:
                                    values=('Sample', info),
                                    tags=('sample', f'sample_{idx}'))
         
-        # Programs (from PCG parsing)
+        # Programs (from PCG parsing) - with sample links if available
         if pkg.programs:
-            prog_node = self.tree.insert(root, 'end', text='Programs',
-                                         values=('', f'{len(pkg.programs)} programs'))
-            for i, prog in enumerate(pkg.programs):
-                self.tree.insert(prog_node, 'end', text=prog.name,
-                               values=('Program', prog.category),
-                               tags=('program', f'program_{i}'))
+            # Check if we have program-sample links
+            program_links = getattr(pkg, '_program_links', {})
+            
+            if program_links:
+                # Show linked programs section with their samples
+                linked_count = len([l for l in program_links.values() if l.samples])
+                linked_node = self.tree.insert(root, 'end', text='🔗 Linked Programs',
+                                              values=('', f'{linked_count} programs with samples'))
+                
+                for prog_name, link in sorted(program_links.items(), key=lambda x: -len(x[1].samples)):
+                    if not link.samples:
+                        continue
+                    
+                    confidence_icon = '✓' if link.confidence >= 0.7 else '~'
+                    prog_node = self.tree.insert(linked_node, 'end', 
+                                                text=f'{confidence_icon} {prog_name}',
+                                                values=('Program', f'{len(link.samples)} samples, {int(link.confidence*100)}%'))
+                    
+                    for sample in sorted(link.samples, key=lambda s: s.name)[:20]:  # Limit to 20 per program
+                        idx = pkg.samples.index(sample) if sample in pkg.samples else -1
+                        type_icon = '🥁' if sample.sample_type == SampleType.DRUMKIT else '🎵'
+                        info = f"{sample.sample_rate}Hz"
+                        if sample.detected_note:
+                            info += f" {sample.detected_note}{sample.detected_octave}"
+                        self.tree.insert(prog_node, 'end', text=f'{type_icon} {sample.name}',
+                                       values=('Sample', info),
+                                       tags=('sample', f'sample_{idx}') if idx >= 0 else ())
+                    
+                    if len(link.samples) > 20:
+                        self.tree.insert(prog_node, 'end', text=f'... and {len(link.samples) - 20} more',
+                                       values=('', ''))
+            else:
+                # Fallback: show programs without links
+                prog_node = self.tree.insert(root, 'end', text='Programs',
+                                             values=('', f'{len(pkg.programs)} programs'))
+                for i, prog in enumerate(pkg.programs):
+                    self.tree.insert(prog_node, 'end', text=prog.name,
+                                   values=('Program', prog.category),
+                                   tags=('program', f'program_{i}'))
         
         # Multisamples
         if pkg.multisamples:

@@ -115,3 +115,31 @@ def group_samples_fast(samples: List[SampleInfo]) -> Dict[str, 'SampleGroup']:
             groups[group_key].is_drumkit = True
     
     return groups
+
+
+def get_sample_type_summary(samples: List[SampleInfo]) -> Dict[str, int]:
+    """
+    Get a summary of sample types.
+    
+    Returns:
+        Dict with counts for each type
+    """
+    summary = {
+        'total': len(samples),
+        'drumkit': 0,
+        'melodic': 0,
+        'oneshot': 0,
+        'unknown': 0
+    }
+    
+    for sample in samples:
+        if sample.sample_type == SampleType.DRUMKIT:
+            summary['drumkit'] += 1
+        elif sample.sample_type == SampleType.MELODIC:
+            summary['melodic'] += 1
+        elif sample.sample_type == SampleType.ONESHOT:
+            summary['oneshot'] += 1
+        else:
+            summary['unknown'] += 1
+    
+    return summary
