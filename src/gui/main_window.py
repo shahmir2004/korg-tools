@@ -20,9 +20,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.korg_types import SetPackage, SampleInfo, Program, Multisample, EmbeddedFile, SampleType, LoopMode
 from parsers.set_parser import SetParser
-from parsers.sample_classifier import classify_sample_info, classify_all_samples, get_sample_type_summary
-from parsers.sample_matcher import group_samples_by_pattern, SampleGroup
+from parsers.sample_classifier_fast import classify_all_samples_fast as classify_all_samples, group_samples_fast as group_samples_by_pattern
 from audio.player import AudioPlayer, PlayerState
+
+
+# Simple dataclass for sample groups
+from dataclasses import dataclass
+from typing import List
+
+@dataclass
+class SampleGroup:
+    name: str
+    samples: List[SampleInfo]
+    is_drumkit: bool = False
 
 
 class LoadingIndicator:
@@ -438,8 +448,20 @@ class MainWindow:
             try:
                 self.root.after(50, lambda: self.loading_indicator.update_status("Parsing files..."))
                 package = self.parser.parse_file(filepath)
+                
+                if package and package.samples:
+                    self.root.after(0, lambda: self.loading_indicator.update_status(f"Classifying {len(package.samples)} samples..."))
+                    # Do heavy classification in background thread
+                    classify_all_samples(package.samples)
+                    
+                    self.root.after(0, lambda: self.loading_indicator.update_status("Grouping samples..."))
+                    # Pre-compute sample groups
+                    package._sample_groups = group_samples_by_pattern(package.samples)
+                
                 self.root.after(0, lambda: self._on_package_loaded(package))
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 self.root.after(0, lambda: self._on_load_error(str(e)))
         
         thread = threading.Thread(target=load_thread, daemon=True)
@@ -484,9 +506,16 @@ class MainWindow:
         
         pkg = self.current_package
         
-        # Classify all samples first
-        if pkg.samples:
+        # Use pre-computed sample groups if available (from background thread)
+        # Otherwise compute them now (for backwards compatibility)
+        if hasattr(pkg, '_sample_groups') and pkg._sample_groups:
+            sample_groups = pkg._sample_groups
+        elif pkg.samples:
+            # Fallback: classify and group now (blocks UI)
             classify_all_samples(pkg.samples)
+            sample_groups = group_samples_by_pattern(pkg.samples)
+        else:
+            sample_groups = {}
         
         # Add root node
         root = self.tree.insert('', 'end', text=pkg.name, values=('Package', pkg.model or 'Unknown'))
@@ -502,9 +531,6 @@ class MainWindow:
         
         # Samples - grouped by parent program/drumkit
         if pkg.samples:
-            # Group samples by program/pattern
-            sample_groups = group_samples_by_pattern(pkg.samples)
-            
             samples_node = self.tree.insert(root, 'end', text='Samples',
                                             values=('', f'{len(pkg.samples)} samples'))
             

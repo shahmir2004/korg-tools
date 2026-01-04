@@ -1,102 +1,121 @@
-# Korg Tools# Korg Synthesizer Package Export Tool
+# Korg Tools
 
+A Python application with GUI for reading, analyzing, playing, and exporting samples from Korg synthesizer packages (.SET files).
 
+## Features
 
-A Python application for reading, playing, and exporting samples from Korg synthesizer packages (.SET files).A Python application with GUI for reading, analyzing, and playing back instruments/samples from Korg synthesizer packages (.SET files).
+- **Parse Korg Pa-series SET packages** - Supports both Pa3X/Pa800 and Pa1000/Pa4X formats
+- **Extract audio samples** from proprietary PCM containers with automatic name extraction
+- **Fast sample classification** - Automatically detects drumkit vs melodic samples
+- **Play samples** with correct sample rate and format
+- **Export samples** as standard WAV files
+- **Export to SF2** (SoundFont) format for use in DAWs
+- **GUI interface** for browsing package contents with hierarchical view
+- **Optimized for large packages** - Loads 4000+ samples in seconds
 
+## Supported Formats
 
-
-## Features## Features (Milestone 1 - Demo Version)
-
-
-
-- **Parse Korg Pa-series SET packages** (folder-based format)- **Package Analysis**: Read and parse Korg .SET package structures
-
-- **Extract audio samples** from proprietary PCM containers- **Sample Extraction**: Decode instruments and samples from packages
-
-- **Play samples** with correct sample rate and format- **Demo Playback**: Play sounds directly without loading into the Korg synthesizer
-
-- **Export samples** as standard WAV files- **GUI Interface**: Browse and preview sounds with a user-friendly interface
-
-- **GUI interface** for browsing package contents
-
-- **CLI interface** for batch operations## Supported Formats
-
-
-
-## Supported Formats- `.SET` - Korg Set/Package files (Pa series, etc.)
-
-- `.PCG` - Program/Combination/Global data
-
-| Format | Extension | Description |- `.KSC` - Korg Script Collection
-
-|--------|-----------|-------------|- `.KMP` - Korg Multisample Parameter
-
-| SET Package | `.SET` folder | Pa-series folder-based package |- `.KSF` - Korg Sample File
-
+| Format | Extension | Description |
+|--------|-----------|-------------|
+| SET Package | `.SET` folder | Pa-series folder-based package |
 | PCM Container | `.PCM` | Audio samples (KORF format) |
-
-| Program Collection | `.PCG` | Programs/Sounds |## Installation
-
+| Program Collection | `.PCG` | Programs/Sounds |
 | Multisample Map | `.KMP` | Key zone mappings |
+| Style | `.STY` | Rhythms/Accompaniments |
 
-| Style | `.STY` | Rhythms/Accompaniments |```bash
+## Requirements
 
-# Create virtual environment (recommended)
-
-## Requirementspython -m venv venv
-
-venv\Scripts\activate  # Windows
-
-- Python 3.10+# source venv/bin/activate  # Linux/Mac
-
+- Python 3.10+
 - Windows/macOS/Linux
 
-# Install dependencies
-
-## Installationpip install -r requirements.txt
-
-```
+## Installation
 
 ### 1. Clone the Repository
 
-## Usage
+```bash
+git clone https://github.com/shahmir2004/korg-tools.git
+cd korg-tools
+```
+
+### 2. Create Virtual Environment
+
+**Windows (PowerShell):**
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+**Windows (Command Prompt):**
+```cmd
+python -m venv .venv
+.venv\Scripts\activate.bat
+```
+
+**Linux/macOS:**
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+### 3. Install Dependencies
 
 ```bash
+pip install -r requirements.txt
+```
 
-git clone https://github.com/shahmir2004/korg-tools.git```bash
+## Usage
 
-cd korg-tools# Run the GUI application
+### GUI Application
 
-```python src/main.py
+```bash
+python src/main.py
+```
 
+### CLI Interface
 
-
-### 2. Create Virtual Environment# Or run CLI for quick testing
-
+```bash
 python src/cli.py path/to/package.SET
+```
 
-**Windows (PowerShell):**```
+## Project Structure
 
-```powershell
+```
+korg-tools/
+├── src/
+│   ├── main.py              # GUI application entry point
+│   ├── cli.py               # Command-line interface
+│   ├── parsers/
+│   │   ├── pcm_parser.py    # PCM audio container parser
+│   │   ├── pcg_parser.py    # Program collection parser
+│   │   ├── kmp_parser.py    # Multisample map parser
+│   │   ├── set_parser.py    # SET package parser
+│   │   ├── sample_classifier_fast.py  # Fast sample type detection
+│   │   └── folder_set_parser.py  # Folder-based SET parser
+│   ├── models/
+│   │   └── korg_types.py    # Data structures
+│   ├── audio/
+│   │   └── player.py        # Audio playback
+│   ├── export/
+│   │   └── sf2_writer.py    # SoundFont export
+│   └── gui/
+│       └── main_window.py   # GUI implementation
+├── samples/                  # Sample SET packages (not in repo)
+├── docs/
+│   └── FORMAT_NOTES.md      # Korg format documentation
+└── requirements.txt
+```
 
-python -m venv .venv## Project Structure
+## Performance
 
-.venv\Scripts\Activate.ps1
+The optimized classifier can process large sample sets quickly:
 
-``````
+| Package Size | Parse Time | Classification | Total |
+|--------------|------------|----------------|-------|
+| 99 PCM files (4229 samples) | ~1.2s | ~0.06s | ~1.3s |
 
-korg/
+## License
 
-**Windows (Command Prompt):**├── src/
-
-```cmd│   ├── main.py              # GUI application entry point
-
-python -m venv .venv│   ├── cli.py               # Command-line interface
-
-.venv\Scripts\activate.bat│   ├── parsers/
-
-```│   │   ├── __init__.py
+MIT License - See LICENSE file for details.
 
 │   │   ├── set_parser.py    # .SET package parser
 

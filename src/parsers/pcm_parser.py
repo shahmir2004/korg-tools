@@ -113,7 +113,8 @@ class PCMParser:
                 root_key=60,
                 data_offset=audio_start,
                 data_size=len(audio_data),
-                raw_data=audio_data
+                raw_data=audio_data,
+                pcm_file=filename
             )
             samples.append(sample)
             
@@ -143,14 +144,29 @@ class PCMParser:
         if korf_pos < 0:
             return names
         
-        # Sample entries start after KORF header (typically at 0x24)
-        pos = korf_pos + 13  # Skip "KORF" and some header bytes
+        # Try both formats:
+        # Format 1 (Pa3X/Pa800): 24-byte fixed entries starting at 0x24
+        # Format 2 (Pa1000/Pa4X): Variable entries with names embedded in structures
         
-        # Align to 24-byte boundary after KORF
+        # First try Format 1 (fixed 24-byte entries)
+        names_v1 = self._parse_names_format_v1(data, korf_pos)
+        if names_v1:
+            return names_v1
+        
+        # Try Format 2 (scan for ASCII names in header area)
+        names_v2 = self._parse_names_format_v2(data)
+        if names_v2:
+            return names_v2
+        
+        return names
+    
+    def _parse_names_format_v1(self, data: bytes, korf_pos: int) -> dict:
+        """Parse fixed 24-byte entry format (Pa3X/Pa800)."""
+        names = {}
+        
+        pos = 0x24 if korf_pos < 0x24 else korf_pos + 13
         if pos % 24 != 0:
             pos = ((pos // 24) + 1) * 24
-        
-        # Try starting at 0x24 if that's a valid position
         if korf_pos < 0x24:
             pos = 0x24
         
@@ -161,9 +177,8 @@ class PCMParser:
             entry = data[pos:pos+24]
             name_bytes = entry[:16]
             
-            # Check for valid name (starts with printable ASCII)
-            if 32 <= name_bytes[0] <= 126:
-                # Find name end (null or non-printable)
+            # Check for valid name (starts with printable ASCII letter)
+            if 65 <= name_bytes[0] <= 122 or name_bytes[0] in (32, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57):
                 name_end = 16
                 for j in range(16):
                     if name_bytes[j] == 0 or not (32 <= name_bytes[j] <= 126):
@@ -172,14 +187,58 @@ class PCMParser:
                 
                 if name_end >= 2:
                     name = name_bytes[:name_end].decode('ascii', errors='replace').strip()
-                    # Sample index is at offset 20 in entry (4th byte of params)
                     idx = entry[20]
                     names[idx] = name
                     pos += 24
                     continue
             
-            # No more valid entries
             break
+        
+        return names
+    
+    def _parse_names_format_v2(self, data: bytes) -> dict:
+        """Parse variable-length entry format (Pa1000/Pa4X) - scan for ASCII names."""
+        names = {}
+        idx = 0
+        
+        # Scan header area for sample names
+        # Names appear as ASCII strings in the range 0x24 to ~0x4000
+        pos = 0x24
+        max_pos = min(len(data), 0x8000)  # Scan up to 32KB
+        
+        while pos < max_pos:
+            # Look for printable ASCII runs that look like sample names
+            if 32 <= data[pos] <= 126:
+                # Find end of ASCII run
+                end = pos
+                while end < max_pos and end - pos < 20:
+                    if 32 <= data[end] <= 126:
+                        end += 1
+                    elif data[end] == 0:
+                        break
+                    else:
+                        break
+                
+                name_len = end - pos
+                if 3 <= name_len <= 16:
+                    try:
+                        name = data[pos:end].decode('ascii').strip()
+                        # Filter out format markers and version strings
+                        if (name and 
+                            not name.startswith('Z112') and 
+                            not name.startswith('KPM') and
+                            not 'v1.0' in name and
+                            not 'v3.2' in name and
+                            '// ' not in name and
+                            'STD' not in name):
+                            names[idx] = name
+                            idx += 1
+                    except:
+                        pass
+                
+                pos = end + 1
+            else:
+                pos += 1
         
         return names
     
