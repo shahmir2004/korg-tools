@@ -18,9 +18,63 @@ import threading
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from models.korg_types import SetPackage, SampleInfo, Program, Multisample, EmbeddedFile
+from models.korg_types import SetPackage, SampleInfo, Program, Multisample, EmbeddedFile, SampleType, LoopMode
 from parsers.set_parser import SetParser
+from parsers.sample_classifier import classify_sample_info, classify_all_samples, get_sample_type_summary
+from parsers.sample_matcher import group_samples_by_pattern, SampleGroup
 from audio.player import AudioPlayer, PlayerState
+
+
+class LoadingIndicator:
+    """Simple loading indicator using status updates."""
+    
+    def __init__(self, parent: tk.Tk):
+        self.parent = parent
+        self.animation_id = None
+        self.is_active = False
+        self.status_text = ""
+        self.tick = 0
+        self.status_label = None  # Will be set by MainWindow
+        
+    def show(self, status: str = "Loading..."):
+        """Start showing loading animation in status bar."""
+        self.is_active = True
+        self.status_text = status
+        self.tick = 0
+        self._animate()
+    
+    def _animate(self):
+        """Animate the status text."""
+        if not self.is_active:
+            return
+        
+        try:
+            # Animated dots
+            dots = "." * ((self.tick % 4))
+            spinner = ['◐', '◓', '◑', '◒'][self.tick % 4]
+            
+            if self.status_label:
+                self.status_label.config(text=f"{spinner} {self.status_text}{dots}")
+            
+            self.tick += 1
+            self.animation_id = self.parent.after(200, self._animate)
+        except:
+            self.is_active = False
+    
+    def update_status(self, status: str):
+        """Update the status text."""
+        self.status_text = status
+    
+    def hide(self):
+        """Stop the loading animation."""
+        self.is_active = False
+        
+        if self.animation_id:
+            try:
+                self.parent.after_cancel(self.animation_id)
+            except:
+                pass
+            self.animation_id = None
 
 
 class MainWindow:
@@ -37,12 +91,16 @@ class MainWindow:
         self.parser = SetParser()
         self.player = AudioPlayer()
         self.selected_item = None
+        self.loading_indicator = LoadingIndicator(root)
         
         # Set up the UI
         self._create_menu()
         self._create_toolbar()
         self._create_main_layout()
         self._create_statusbar()
+        
+        # Connect loading indicator to status label
+        self.loading_indicator.status_label = self.status_label
         
         # Bind events
         self._bind_events()
@@ -242,8 +300,21 @@ class MainWindow:
     
     def _create_virtual_keyboard(self, parent: ttk.Frame):
         """Create a virtual keyboard for testing notes."""
-        ttk.Label(parent, text="Click keys to play notes (requires a sample selected)", 
-                  style='Info.TLabel').pack(pady=5)
+        # Instructions label that updates based on sample type
+        self.keyboard_info_label = ttk.Label(
+            parent, 
+            text="Select a sample to enable keyboard playback", 
+            style='Info.TLabel'
+        )
+        self.keyboard_info_label.pack(pady=5)
+        
+        # Sample type indicator
+        self.keyboard_type_label = ttk.Label(
+            parent,
+            text="",
+            style='Title.TLabel'
+        )
+        self.keyboard_type_label.pack(pady=2)
         
         keyboard_canvas = tk.Canvas(parent, height=120, bg='#2d2d2d')
         keyboard_canvas.pack(fill=tk.X, pady=10)
@@ -293,6 +364,25 @@ class MainWindow:
         
         self.keyboard_canvas = keyboard_canvas
     
+    def _update_keyboard_for_sample(self, sample: SampleInfo):
+        """Update keyboard display based on selected sample type."""
+        if sample.sample_type == SampleType.DRUMKIT:
+            self.keyboard_type_label.config(text="🥁 DRUM MODE")
+            self.keyboard_info_label.config(
+                text="Any key plays this drum sound at original pitch (no transposition)"
+            )
+        elif sample.sample_type == SampleType.MELODIC:
+            note_info = f" - Root: {sample.detected_note}{sample.detected_octave}" if sample.detected_note else ""
+            self.keyboard_type_label.config(text=f"🎹 MELODIC MODE{note_info}")
+            self.keyboard_info_label.config(
+                text="Keys transpose the sample - play different notes!"
+            )
+        else:
+            self.keyboard_type_label.config(text="🔊 SAMPLE MODE")
+            self.keyboard_info_label.config(
+                text="Keys transpose the sample"
+            )
+    
     def _create_statusbar(self):
         """Create the status bar."""
         self.statusbar = ttk.Frame(self.root)
@@ -338,21 +428,29 @@ class MainWindow:
     
     def _load_package(self, filepath: str):
         """Load a package file."""
-        self._set_status(f"Loading: {filepath}")
+        filename = os.path.basename(filepath)
+        self._set_status(f"Loading: {filename}")
+        
+        # Show loading indicator
+        self.loading_indicator.show(f"Loading {filename}...")
         
         def load_thread():
             try:
+                self.root.after(50, lambda: self.loading_indicator.update_status("Parsing files..."))
                 package = self.parser.parse_file(filepath)
                 self.root.after(0, lambda: self._on_package_loaded(package))
             except Exception as e:
                 self.root.after(0, lambda: self._on_load_error(str(e)))
         
-        thread = threading.Thread(target=load_thread)
+        thread = threading.Thread(target=load_thread, daemon=True)
         thread.start()
     
     def _on_package_loaded(self, package: Optional[SetPackage]):
         """Handle successful package load."""
+        self.loading_indicator.update_status("Building interface...")
+        
         if package is None:
+            self.loading_indicator.hide()
             self._on_load_error("Failed to parse package")
             return
         
@@ -361,12 +459,17 @@ class MainWindow:
         self._update_package_info()
         self._enable_controls()
         
+        # Hide loading indicator
+        self.loading_indicator.hide()
+        
         summary = self.parser.get_package_summary(package)
         self._set_status(f"Loaded: {package.name} - {summary['samples']} samples, "
                         f"{summary['programs']} programs")
     
     def _on_load_error(self, error: str):
         """Handle package load error."""
+        self.loading_indicator.hide()
+        
         self._set_status(f"Error: {error}")
         messagebox.showerror("Load Error", f"Failed to load package:\n{error}")
     
@@ -381,6 +484,10 @@ class MainWindow:
         
         pkg = self.current_package
         
+        # Classify all samples first
+        if pkg.samples:
+            classify_all_samples(pkg.samples)
+        
         # Add root node
         root = self.tree.insert('', 'end', text=pkg.name, values=('Package', pkg.model or 'Unknown'))
         
@@ -393,17 +500,73 @@ class MainWindow:
                                values=(f.file_type, f'{f.size} bytes'),
                                tags=('embedded',))
         
-        # Samples
+        # Samples - grouped by parent program/drumkit
         if pkg.samples:
+            # Group samples by program/pattern
+            sample_groups = group_samples_by_pattern(pkg.samples)
+            
             samples_node = self.tree.insert(root, 'end', text='Samples',
                                             values=('', f'{len(pkg.samples)} samples'))
-            for i, sample in enumerate(pkg.samples):
-                info = f"{sample.sample_rate}Hz, {sample.bit_depth}bit"
-                self.tree.insert(samples_node, 'end', text=sample.name,
-                               values=('Sample', info),
-                               tags=('sample', f'sample_{i}'))
+            
+            # Separate drumkits from melodic programs
+            drumkits = {}
+            melodic_programs = {}
+            unassigned = None
+            
+            for group_name, group in sample_groups.items():
+                if group_name == '(Unassigned)':
+                    unassigned = group
+                elif group.is_drumkit or any(s.sample_type == SampleType.DRUMKIT for s in group.samples):
+                    drumkits[group_name] = group
+                else:
+                    melodic_programs[group_name] = group
+            
+            # Drumkits section
+            if drumkits:
+                drum_section = self.tree.insert(samples_node, 'end', text='🥁 Drumkits',
+                                                values=('', f'{len(drumkits)} drumkits'))
+                
+                for dk_name, group in sorted(drumkits.items(), key=lambda x: -len(x[1].samples)):
+                    dk_node = self.tree.insert(drum_section, 'end', text=f'🥁 {dk_name}',
+                                               values=('Drumkit', f'{len(group.samples)} sounds'))
+                    
+                    for sample in sorted(group.samples, key=lambda s: s.name):
+                        idx = pkg.samples.index(sample)
+                        info = f"{sample.sample_rate}Hz, {sample.duration_seconds:.2f}s"
+                        self.tree.insert(dk_node, 'end', text=sample.name,
+                                       values=('🥁 Sound', info),
+                                       tags=('sample', f'sample_{idx}', 'drumkit'))
+            
+            # Melodic programs section
+            if melodic_programs:
+                melodic_section = self.tree.insert(samples_node, 'end', text='🎹 Programs',
+                                                   values=('', f'{len(melodic_programs)} programs'))
+                
+                for prog_name, group in sorted(melodic_programs.items(), key=lambda x: -len(x[1].samples)):
+                    prog_node = self.tree.insert(melodic_section, 'end', text=f'🎹 {prog_name}',
+                                                 values=('Program', f'{len(group.samples)} samples'))
+                    
+                    for sample in sorted(group.samples, key=lambda s: s.name):
+                        idx = pkg.samples.index(sample)
+                        note_info = f"{sample.detected_note}{sample.detected_octave}" if sample.detected_note else ""
+                        parent_info = f"→ {sample.parent_program}" if sample.parent_program else ""
+                        info = f"{sample.sample_rate}Hz {note_info}".strip()
+                        self.tree.insert(prog_node, 'end', text=sample.name,
+                                       values=('🎵 Sample', info),
+                                       tags=('sample', f'sample_{idx}', 'melodic'))
+            
+            # Unassigned samples
+            if unassigned and unassigned.samples:
+                other_node = self.tree.insert(samples_node, 'end', text='❓ Unassigned',
+                                              values=('', f'{len(unassigned.samples)} samples'))
+                for sample in sorted(unassigned.samples, key=lambda s: s.name):
+                    idx = pkg.samples.index(sample)
+                    info = f"{sample.sample_rate}Hz, {sample.bit_depth}bit"
+                    self.tree.insert(other_node, 'end', text=sample.name,
+                                   values=('Sample', info),
+                                   tags=('sample', f'sample_{idx}'))
         
-        # Programs
+        # Programs (from PCG parsing)
         if pkg.programs:
             prog_node = self.tree.insert(root, 'end', text='Programs',
                                          values=('', f'{len(pkg.programs)} programs'))
@@ -422,8 +585,34 @@ class MainWindow:
                                values=('Multisample', info),
                                tags=('multisample', f'multisample_{i}'))
         
-        # Expand root
+        # Expand root and samples
         self.tree.item(root, open=True)
+        for child in self.tree.get_children(root):
+            child_text = self.tree.item(child, 'text')
+            if 'Samples' in child_text:
+                self.tree.item(child, open=True)
+    
+    def _get_instrument_name(self, sample: SampleInfo) -> str:
+        """Extract instrument name from a melodic sample."""
+        import re
+        name = sample.name
+        
+        # Pattern: "Note Instrument" (e.g., "Do 1 banat")
+        match = re.match(r'(?:Do|Re|Mi|Fa|Sol|La|Si|[A-G]#?)[\s_\-]?\d*\s+(.+)', name, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        
+        # Pattern: FL + note (flute)
+        if name.startswith('FL') and len(name) >= 3:
+            return "Flute"
+        
+        # Try to find instrument keyword
+        instrument_keywords = ['banat', 'Sax', 'Zeta', 'Acordeon', 'Returnela', 'Blerim', 'Braci', 'MG', 'GM']
+        for kw in instrument_keywords:
+            if kw.lower() in name.lower():
+                return kw
+        
+        return "Other"
     
     def _on_tree_select(self, event):
         """Handle tree selection change."""
@@ -443,6 +632,7 @@ class MainWindow:
                     self.selected_item = self.current_package.samples[idx]
                     self._show_sample_details(self.selected_item)
                     self._draw_waveform(self.selected_item)
+                    self._update_keyboard_for_sample(self.selected_item)
                 break
             elif tag.startswith('program_'):
                 idx = int(tag.split('_')[1])
@@ -478,8 +668,26 @@ class MainWindow:
     
     def _show_sample_details(self, sample: SampleInfo):
         """Show sample details in the info panel."""
+        # Sample type description
+        if sample.sample_type == SampleType.DRUMKIT:
+            type_desc = "🥁 DRUMKIT - Percussion/One-Shot\n  Play at original pitch (no transposition)"
+        elif sample.sample_type == SampleType.MELODIC:
+            note_info = f" (detected: {sample.detected_note}{sample.detected_octave})" if sample.detected_note else ""
+            type_desc = f"🎹 MELODIC - Musical Note{note_info}\n  Can be transposed using keyboard"
+        else:
+            type_desc = "❓ UNKNOWN - Type not determined\n  Playing at original pitch"
+        
+        # Parent program info
+        parent_info = sample.parent_program if sample.parent_program else "(Not assigned)"
+        
         info = f"""Sample: {sample.name}
 {'=' * 50}
+
+Parent Program/Drumkit:
+  📦 {parent_info}
+
+Sample Type:
+  {type_desc}
 
 Audio Properties:
   Sample Rate: {sample.sample_rate} Hz
@@ -497,11 +705,27 @@ MIDI Mapping:
   Root Key: {sample.root_key} ({self._note_name(sample.root_key)})
   Fine Tune: {sample.fine_tune} cents
 
-Data:
+Source:
+  PCM File: {sample.pcm_file or 'N/A'}
+  Index: {sample.sample_index}
   Offset: {sample.data_offset}
   Size: {sample.data_size} bytes
   Has Data: {'Yes' if sample.raw_data else 'No'}
+
+Playback Notes:
 """
+        if sample.sample_type == SampleType.DRUMKIT:
+            info += """  - Click Play to hear this drum sound
+  - Keyboard will play this sound without pitch change
+  - Each drum sample is a unique sound"""
+        elif sample.sample_type == SampleType.MELODIC:
+            info += """  - Click Play to hear at original pitch
+  - Use Keyboard tab to play transposed notes
+  - This sample can fill multiple keys via pitch shifting"""
+        else:
+            info += """  - Click Play to hear sample
+  - Keyboard transposition available"""
+        
         self._set_info_text(info)
     
     def _show_program_details(self, program: Program):
@@ -670,8 +894,17 @@ Compressed: {'Yes' if f.compressed else 'No'}
             return
         
         if isinstance(self.selected_item, SampleInfo):
-            self.player.play_sample(self.selected_item, note=note)
-            self._set_status(f"Playing note: {self._note_name(note)}")
+            sample = self.selected_item
+            
+            # For drum samples, play without pitch shifting
+            if sample.sample_type == SampleType.DRUMKIT:
+                self.player.play_sample(sample, note=None)  # No pitch shift
+                self._set_status(f"Playing drum: {sample.name}")
+            else:
+                # For melodic samples, apply pitch shifting
+                self.player.play_sample(sample, note=note)
+                self._set_status(f"Playing note: {self._note_name(note)} ({sample.name})")
+                
         elif isinstance(self.selected_item, Multisample):
             self.player.play_note(self.selected_item, note)
             self._set_status(f"Playing note: {self._note_name(note)}")
@@ -833,6 +1066,17 @@ Compressed: {'Yes' if f.compressed else 'No'}
         
         summary = self.parser.get_package_summary(self.current_package)
         
+        # Get sample type breakdown
+        type_info = ""
+        if self.current_package.samples:
+            type_summary = get_sample_type_summary(self.current_package.samples)
+            type_info = f"""
+Sample Types:
+  🥁 Drum/Percussion: {type_summary['drumkit']}
+  🎹 Melodic (Notes): {type_summary['melodic']}
+  ❓ Unknown: {type_summary['unknown']}
+"""
+        
         info = f"""Package: {summary['name']}
 {'=' * 50}
 
@@ -845,9 +1089,13 @@ Contents:
   Samples: {summary['samples']}
   Drum Kits: {summary['drum_kits']}
   Styles: {summary['styles']}
-
+{type_info}
 File Types Found:
   {', '.join(summary['file_types']) if summary['file_types'] else 'None'}
+
+Playback Guide:
+  🥁 Drum samples: Play at original pitch (percussion)
+  🎹 Melodic samples: Use keyboard for transposed notes
 """
         self._set_info_text(info)
     

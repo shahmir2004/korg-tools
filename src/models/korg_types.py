@@ -18,6 +18,21 @@ class SampleFormat(IntEnum):
     COMPRESSED = 0xFF
 
 
+class SampleType(Enum):
+    """
+    Sample usage type - determines how the sample should be played.
+    
+    UNKNOWN: Type not yet determined
+    DRUMKIT: Percussion/one-shot - each key has a unique sound, no pitch shifting
+    MELODIC: Note-based samples - few samples cover keyboard with pitch interpolation
+    ONESHOT: Single sound effect, no mapping
+    """
+    UNKNOWN = "unknown"
+    DRUMKIT = "drumkit"
+    MELODIC = "melodic"
+    ONESHOT = "oneshot"
+
+
 class LoopMode(IntEnum):
     """Sample loop modes."""
     NO_LOOP = 0
@@ -42,6 +57,17 @@ class SampleInfo:
     data_offset: int = 0
     data_size: int = 0
     raw_data: Optional[bytes] = None
+    sample_type: 'SampleType' = None  # DRUMKIT, MELODIC, or ONESHOT
+    detected_note: str = ""  # For melodic samples: C, D, E, etc.
+    detected_octave: int = -1  # For melodic samples: octave number
+    pcm_file: str = ""  # Source PCM file name
+    sample_index: int = 0  # Index within PCM file
+    parent_program: str = ""  # Name of the drumkit/program this sample belongs to
+    key_assignment: int = -1  # MIDI key this sample is assigned to (-1 = not assigned)
+    
+    def __post_init__(self):
+        if self.sample_type is None:
+            self.sample_type = SampleType.UNKNOWN
     
     @property
     def duration_seconds(self) -> float:
@@ -49,6 +75,29 @@ class SampleInfo:
         if self.sample_rate > 0:
             return self.num_samples / self.sample_rate
         return 0.0
+    
+    @property
+    def is_drumkit(self) -> bool:
+        """Check if this is a drum/percussion sample."""
+        return self.sample_type == SampleType.DRUMKIT
+    
+    @property
+    def is_melodic(self) -> bool:
+        """Check if this is a melodic sample with pitch info."""
+        return self.sample_type == SampleType.MELODIC
+    
+    @property
+    def type_label(self) -> str:
+        """Get a display label for the sample type."""
+        if self.sample_type == SampleType.DRUMKIT:
+            return "🥁 Drum"
+        elif self.sample_type == SampleType.MELODIC:
+            note_info = f" ({self.detected_note}{self.detected_octave})" if self.detected_note else ""
+            return f"🎹 Melodic{note_info}"
+        elif self.sample_type == SampleType.ONESHOT:
+            return "🔊 One-Shot"
+        else:
+            return "❓ Unknown"
 
 
 @dataclass
